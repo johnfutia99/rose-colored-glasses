@@ -109,16 +109,53 @@ function sitePattern(rawUrl) {
   }
 }
 
-async function detectUnsupportedSite() {
+async function pingTab(tabId) {
   try {
-    const tab = await getActiveTab();
-    if (!sitePattern(tab.url || "")) return; // chrome://, http, store pages
-    await chrome.tabs.sendMessage(tab.id, { type: "PING" });
-    // Ping answered: content script already runs here.
+    await chrome.tabs.sendMessage(tabId, { type: "PING" });
+    return true;
   } catch (err) {
-    el("mainButtons").hidden = true;
-    el("enableWrap").hidden = false;
+    return false;
   }
+}
+
+// Decide which buttons the popup shows. The permission grant is the source
+// of truth — a dead ping alone must never resurface the Enable button on a
+// site the user already enabled.
+async function detectSiteState() {
+  let tab;
+  let pattern;
+  try {
+    tab = await getActiveTab();
+    pattern = sitePattern(tab.url || "");
+  } catch (err) {
+    return; // no tab; leave the default UI
+  }
+  if (!pattern) return; // chrome://, http, store pages
+
+  if (await pingTab(tab.id)) return; // content script alive: normal UI
+
+  let granted = false;
+  try {
+    granted = await chrome.permissions.contains({ origins: [pattern] });
+  } catch (err) {
+    // Treat as not granted; worst case the user re-approves.
+  }
+
+  if (granted) {
+    // Already enabled, but this page has no script yet (tab loaded before
+    // enabling, or Chrome cleared dynamic scripts on update). Self-heal:
+    // re-register and inject now, quietly.
+    try {
+      await chrome.runtime.sendMessage({ type: "REGISTER_SITE", pattern });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+    } catch (err) {
+      // Rewrite click will surface its own error if this failed.
+    }
+    return;
+  }
+
+  el("mainButtons").hidden = true;
+  el("enableWrap").hidden = false;
 }
 
 el("enableSite").addEventListener("click", async () => {
@@ -185,4 +222,4 @@ for (const id of ["humor", "sarcasm", "checkedOut", "autoRewrite"]) {
 }
 
 loadSettings();
-detectUnsupportedSite();
+detectSiteState();
