@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Rose Colored Glasses",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Rewrites news headlines into happier versions. Sarcasm slider included.",
   "permissions": [
     "storage",

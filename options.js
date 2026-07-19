@@ -53,4 +53,21 @@ async function loadSites() {
   }
 }
 
+// --- Rewrite path note -------------------------------------------------------
+// One line: is this device rewriting locally (Gemini Nano) or via our server?
+
+async function loadPathNote() {
+  let info = null;
+  try {
+    info = await chrome.runtime.sendMessage({ type: "GET_PATH_INFO" });
+  } catch (err) {
+    return; // background unavailable; leave the note blank
+  }
+  if (!info) return;
+  el("pathNote").textContent = info.onDeviceAvailable
+    ? "Rewrites happen on this device — private, free, works offline."
+    : "Rewrites go through our server (headlines are processed by DeepSeek).";
+}
+
 loadSites();
+loadPathNote();

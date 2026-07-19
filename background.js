@@ -43,15 +43,18 @@ function buildSystemPrompt(settings) {
   ].join(" ");
 }
 
-// Shared by every Phase 2 rewrite path (on-device and the Worker keep the
-// same JSON-array contract). Unused this instant, deliberately kept.
-function parseArray(text, originals) {
-  const clean = text.replace(/```json|```/g, "").trim();
-  const parsed = JSON.parse(clean);
+// Both rewrite paths keep the same JSON-array contract. On-device output
+// marks unusable indexes null so the caller can send exactly those to the
+// Worker; the Worker path does its own per-index fallback server-side.
+function parseArrayOrNulls(text, expectedLength) {
+  const clean = String(text).replace(/```json|```/g, "").trim();
+  const parsed = JSON.parse(clean); // throws on garbage; caller catches
   if (!Array.isArray(parsed)) throw new Error("Model did not return a JSON array.");
-  return originals.map((original, i) =>
-    typeof parsed[i] === "string" && parsed[i].trim() ? parsed[i].trim() : original
-  );
+  const out = [];
+  for (let i = 0; i < expectedLength; i++) {
+    out.push(typeof parsed[i] === "string" && parsed[i].trim() ? parsed[i].trim() : null);
+  }
+  return out;
 }
 
 // --- Rewrite paths ----------------------------------------------------------
@@ -75,10 +78,66 @@ async function getQuotaId() {
   return id;
 }
 
-// On-device rewrite (Chrome Prompt API) lands in Task 2.3. Until then this
-// always reports unavailable and every miss goes to the Worker.
+// --- On-device path (Chrome Prompt API / Gemini Nano) -----------------------
+// Free, private, offline. Only used when the model is already downloaded and
+// ready ("available"); we never trigger a download. Any failure means null:
+// the caller falls through to the Worker, never the console.
+
+const ON_DEVICE_RECHECK_MS = 5 * 60 * 1000;
+const ON_DEVICE_TIMEOUT_MS = 30000;
+
+let onDeviceCheck = { at: 0, available: false };
+
+async function onDeviceAvailable() {
+  if (typeof LanguageModel === "undefined") return false;
+  const now = Date.now();
+  if (now - onDeviceCheck.at < ON_DEVICE_RECHECK_MS) return onDeviceCheck.available;
+  let available = false;
+  try {
+    available = (await LanguageModel.availability()) === "available";
+  } catch (err) {
+    available = false;
+  }
+  onDeviceCheck = { at: now, available };
+  return available;
+}
+
+// Returns null when unavailable or the whole batch failed. Otherwise an
+// array matching headlines, with null at indexes the model fumbled — the
+// caller sends exactly those to the Worker.
 async function rewriteOnDevice(headlines, settings) {
-  return null;
+  if (!(await onDeviceAvailable())) return null;
+  let session = null;
+  try {
+    const signal = AbortSignal.timeout(ON_DEVICE_TIMEOUT_MS);
+    session = await LanguageModel.create({
+      initialPrompts: [{ role: "system", content: buildSystemPrompt(settings) }],
+      signal
+    });
+    const output = await session.prompt(JSON.stringify(headlines), { signal });
+    return parseArrayOrNulls(output, headlines.length);
+  } catch (err) {
+    return null;
+  } finally {
+    if (session) {
+      try {
+        session.destroy();
+      } catch (err) {
+        // Already gone.
+      }
+    }
+  }
+}
+
+// Remember which path produced the last fresh rewrites, for the Options
+// page note. Write only on change to keep storage quiet.
+async function notePath(path) {
+  try {
+    const { lastPath } = await chrome.storage.local.get("lastPath");
+    if (lastPath !== path) await chrome.storage.local.set({ lastPath: path });
+  } catch (err) {
+    // Cosmetic only; never block a rewrite on it.
+  }
 }
 
 // The owner's Cloudflare Worker proxy. Throws with popup-ready status text
@@ -210,8 +269,38 @@ async function rewriteWithCache(headlines, settings) {
   if (missIndexes.length > 0) {
     const missHeadlines = missIndexes.map((i) => headlines[i]);
 
+    // On-device first. It may cover the whole batch, some of it (null =
+    // fumbled index), or none (null result); the Worker takes the remainder,
+    // so only that remainder costs quota.
     let fresh = await rewriteOnDevice(missHeadlines, settings);
-    if (!fresh) fresh = await rewriteViaWorker(missHeadlines, settings);
+    const usedOnDevice = fresh !== null;
+    if (!fresh) fresh = new Array(missHeadlines.length).fill(null);
+
+    const workerSlots = [];
+    fresh.forEach((r, j) => {
+      if (r === null) workerSlots.push(j);
+    });
+    if (workerSlots.length > 0) {
+      try {
+        const workerRewrites = await rewriteViaWorker(
+          workerSlots.map((j) => missHeadlines[j]),
+          settings
+        );
+        workerSlots.forEach((j, k) => {
+          fresh[j] = workerRewrites[k];
+        });
+      } catch (err) {
+        // If on-device produced nothing, this is a real failure: surface it.
+        // If it covered part of the batch (e.g. offline, Worker unreachable),
+        // keep the good rewrites and leave the fumbled few as originals
+        // rather than junking the whole page.
+        if (workerSlots.length === missHeadlines.length) throw err;
+        workerSlots.forEach((j) => {
+          fresh[j] = missHeadlines[j];
+        });
+      }
+    }
+    notePath(usedOnDevice ? "on-device" : "cloud");
 
     const entries = {};
     const now = Date.now();
@@ -384,6 +473,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === "UNREGISTER_SITE") {
     unregisterUserSite(message.pattern).then(sendResponse);
+    return true;
+  }
+  if (message.type === "GET_PATH_INFO") {
+    (async () => {
+      let lastPath = null;
+      try {
+        ({ lastPath = null } = await chrome.storage.local.get("lastPath"));
+      } catch (err) {
+        // Cosmetic; report availability alone.
+      }
+      sendResponse({ onDeviceAvailable: await onDeviceAvailable(), lastPath });
+    })();
     return true;
   }
   return false;
