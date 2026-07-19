@@ -45,6 +45,7 @@
         "https://*.theguardian.com/*",
         "https://*.washingtonpost.com/*",
         "https://news.yahoo.com/*",
+        "https://www.yahoo.com/news*",
         "https://*.nbcnews.com/*",
         "https://*.foxnews.com/*",
         "https://usatoday.com/*",
@@ -88,6 +89,8 @@
         "https://statesman.com/*",
         "https://*.statesman.com/*",
         "https://abcnews.go.com/*",
+        "https://abcnews.com/*",
+        "https://*.abcnews.com/*",
         "https://news.sky.com/*"
       ],
       "js": [
