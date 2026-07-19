@@ -11,6 +11,12 @@
   margin: 0;
 }
 
+/* Author display rules (e.g. .buttons { display: flex }) override the
+   browser's built-in [hidden] { display: none }. Restore hidden's meaning. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   width: 320px;
   padding: 18px 18px 16px;
