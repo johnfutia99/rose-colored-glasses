@@ -5,5 +5,5 @@ compatibility_date = "2026-07-19"
 # Create the namespace with:  npx wrangler kv namespace create RCG_KV
 # then replace the placeholder id below with the one it prints.
 kv_namespaces = [
-  { binding = "RCG_KV", id = "REPLACE_WITH_KV_NAMESPACE_ID" }
+  { binding = "RCG_KV", id = "b099458e3ecc47b386004ddefd862140" }
 ]
