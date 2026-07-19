@@ -67,7 +67,7 @@ el("rewrite").addEventListener("click", async () => {
   await saveSettings();
   const settings = await chrome.storage.local.get(DEFAULTS);
   if (!savedKey(settings)) {
-    setStatus("No API key saved. Add yours in Options (link below).");
+    setStatus("No API key saved. Right-click the icon and pick Options.");
     return;
   }
   setStatus("Rewriting...");
@@ -102,10 +102,5 @@ el("sarcasm").addEventListener("input", (event) => {
 for (const id of ["humor", "sarcasm", "checkedOut", "autoRewrite"]) {
   el(id).addEventListener("change", saveSettings);
 }
-
-el("openOptions").addEventListener("click", (event) => {
-  event.preventDefault();
-  chrome.runtime.openOptionsPage();
-});
 
 loadSettings();
