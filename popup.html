@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>Rose Colored Glasses</h1>
+    <p class="tagline">The news, but nicer.</p>
+  </header>
+
+  <main>
+    <label class="field">
+      <span class="label">DeepSeek API key</span>
+      <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off" />
+    </label>
+
+    <label class="field">
+      <span class="label">Humor style</span>
+      <select id="humor">
+        <option value="wholesome">Wholesome</option>
+        <option value="dry">Dry</option>
+        <option value="absurd">Absurd</option>
+        <option value="dad">Dad jokes</option>
+        <option value="unhinged">Unhinged optimism</option>
+        <option value="feet">Beautiful feet enjoyer</option>
+        <option value="squirrels">Squirrel misadventures</option>
+        <option value="shakespeare">Shakespearean</option>
+        <option value="infomercial">Infomercial pitchman</option>
+        <option value="midwest">Midwest nice</option>
+      </select>
+    </label>
+
+    <div class="field">
+      <div class="slider-head">
+        <span class="label">Sarcasm</span>
+        <span id="sarcasmLabel" class="slider-value">Gently rosy</span>
+      </div>
+      <input type="range" id="sarcasm" min="0" max="10" step="1" value="3" />
+    </div>
+
+    <label class="check">
+      <input type="checkbox" id="checkedOut" />
+      <span>Fully checked out (facts optional)</span>
+    </label>
+
+    <label class="check">
+      <input type="checkbox" id="autoRewrite" checked />
+      <span>Rewrite pages automatically</span>
+    </label>
+
+    <div class="buttons">
+      <button id="rewrite" class="primary">Rewrite this page</button>
+      <button id="restore" class="ghost">Restore originals</button>
+    </div>
+
+    <p id="status" class="status" aria-live="polite"></p>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>
