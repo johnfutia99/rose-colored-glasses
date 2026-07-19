@@ -229,20 +229,33 @@ async function callDeepSeek(env, headlines, settings) {
   return parsed;
 }
 
+// One retry per chunk: the model occasionally returns broken JSON, and with
+// several chunks per page an all-or-nothing pass would fail roughly half of
+// full pages. Retrying only the broken chunk keeps that near zero for the
+// cost of one extra small call. The spend-cap 503 never retries.
+async function callDeepSeekWithRetry(env, headlines, settings) {
+  try {
+    return await callDeepSeek(env, headlines, settings);
+  } catch (err) {
+    if (err instanceof UpstreamError && err.status === 503) throw err;
+    return callDeepSeek(env, headlines, settings);
+  }
+}
+
 // Split a big miss list into parallel DeepSeek calls so one full page never
-// outruns the upstream timeout. Results merge back in index order. Any chunk
-// failure fails the whole call with its friendly message — same all-or-nothing
-// semantics as a single call; the extension's retry covers transient flakes.
+// outruns the upstream timeout. Results merge back in index order. A chunk
+// that fails twice fails the whole call with its friendly message — same
+// all-or-nothing semantics as a single call.
 async function callDeepSeekChunked(env, headlines, settings) {
   if (headlines.length <= DEEPSEEK_CHUNK_SIZE) {
-    return callDeepSeek(env, headlines, settings);
+    return callDeepSeekWithRetry(env, headlines, settings);
   }
   const chunks = [];
   for (let i = 0; i < headlines.length; i += DEEPSEEK_CHUNK_SIZE) {
     chunks.push(headlines.slice(i, i + DEEPSEEK_CHUNK_SIZE));
   }
   const results = await Promise.all(
-    chunks.map((chunk) => callDeepSeek(env, chunk, settings))
+    chunks.map((chunk) => callDeepSeekWithRetry(env, chunk, settings))
   );
   // Pin each chunk's result to its exact length so a short or long reply in
   // one chunk can't shift every index after it. Missing slots become null,
