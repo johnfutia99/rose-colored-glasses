@@ -282,6 +282,36 @@ chrome.runtime.onInstalled.addListener(() => {
   resyncUserSites();
 });
 
+// The popup can die mid-enable: on macOS the permission dialog steals focus
+// and Chrome closes the popup, killing its JS before it can register the
+// script. The grant itself still lands, so finish the job from here.
+chrome.permissions.onAdded.addListener((added) => {
+  handleGrantedOrigins((added && added.origins) || []);
+});
+
+async function handleGrantedOrigins(origins) {
+  for (const origin of origins) {
+    if (!USER_SITE_PATTERN.test(origin)) continue; // wildcard or non-user grant
+    const result = await registerUserSite(origin);
+    if (!result || !result.ok) continue;
+    // Inject into the tab the user is looking at so the first enable click
+    // flips the page. Double injection is safe: content.js guards itself.
+    try {
+      const tabs = await chrome.tabs.query({ url: origin, active: true });
+      for (const tab of tabs) {
+        if (tab.id) {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ["content.js"]
+          });
+        }
+      }
+    } catch (err) {
+      // No matching active tab; the registered script covers the next load.
+    }
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "REGISTER_SITE") {
     registerUserSite(message.pattern).then(sendResponse);
