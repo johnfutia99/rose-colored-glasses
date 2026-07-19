@@ -1,7 +1,7 @@
 # Rose Colored Glasses — Worker proxy
 
 Cloudflare Worker that holds the DeepSeek key so the extension never needs one.
-One route: `POST /rewrite`. Caps: payload limits (400), 30 pages/day per
+One route: `POST /rewrite`. Caps: payload limits (400), 120 pages/day per
 install id (429), and DeepSeek's dashboard spend cap surfaced as 503.
 
 ## Deploy (owner-run, one time)
@@ -48,18 +48,18 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST "$URL/rewrite" \
   -d "{\"id\":\"11111111-2222-4333-8444-555555555555\",\"headlines\":[$(printf '"headline padding to length %02d",' $(seq 1 61) | sed 's/,$//')],\"settings\":{\"sarcasm\":2,\"humor\":\"dry\",\"checkedOut\":false}}"
 ```
 
-**3. Daily quota → 31st request gets 429** (fresh id so earlier tests don't skew the count)
+**3. Daily quota → 121st request gets 429** (fresh id so earlier tests don't skew the count)
 
 ```sh
-for i in $(seq 1 31); do
+for i in $(seq 1 121); do
   curl -s -o /dev/null -w "$i: %{http_code}\n" -X POST "$URL/rewrite" \
     -H 'content-type: application/json' \
     -d '{"id":"99999999-8888-4777-8666-555555555555","headlines":["Bridge closure snarls commute for months of repairs"],"settings":{"sarcasm":2,"humor":"dry","checkedOut":false}}'
 done
 ```
 
-Requests 1–30 print 200 (request 1 costs one DeepSeek call; 2–30 are KV cache
-hits and still count as pages). Request 31 prints 429.
+Requests 1–120 print 200 (request 1 costs one DeepSeek call; the rest are KV
+cache hits and still count as pages). Request 121 prints 429.
 
 ## Keep in sync
 

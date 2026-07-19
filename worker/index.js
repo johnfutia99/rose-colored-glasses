@@ -21,7 +21,7 @@ const MAX_HEADLINES = 60;
 const MAX_HEADLINE_CHARS = 200;
 const MAX_BODY_BYTES = 64 * 1024;
 
-const DAILY_PAGE_QUOTA = 30;
+const DAILY_PAGE_QUOTA = 120;
 const QUOTA_TTL_SECONDS = 2 * 24 * 60 * 60; // key covers one UTC day; TTL just clears old keys
 const CACHE_TTL_SECONDS = 30 * 24 * 60 * 60;
 
