@@ -27,6 +27,11 @@ const CACHE_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 const UPSTREAM_TIMEOUT_MS = 25000;
 
+// DeepSeek generation time grows sharply with batch size: ~8s for 20-30
+// headlines, past 25s for 60. Chunks of 20 run in parallel keep the worst
+// full-page request around 10s while staying one request and one quota page.
+const DEEPSEEK_CHUNK_SIZE = 20;
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SETTINGS_KEYS = ["sarcasm", "humor", "checkedOut"];
 
@@ -222,6 +227,31 @@ async function callDeepSeek(env, headlines, settings) {
   return parsed;
 }
 
+// Split a big miss list into parallel DeepSeek calls so one full page never
+// outruns the upstream timeout. Results merge back in index order. Any chunk
+// failure fails the whole call with its friendly message — same all-or-nothing
+// semantics as a single call; the extension's retry covers transient flakes.
+async function callDeepSeekChunked(env, headlines, settings) {
+  if (headlines.length <= DEEPSEEK_CHUNK_SIZE) {
+    return callDeepSeek(env, headlines, settings);
+  }
+  const chunks = [];
+  for (let i = 0; i < headlines.length; i += DEEPSEEK_CHUNK_SIZE) {
+    chunks.push(headlines.slice(i, i + DEEPSEEK_CHUNK_SIZE));
+  }
+  const results = await Promise.all(
+    chunks.map((chunk) => callDeepSeek(env, chunk, settings))
+  );
+  // Pin each chunk's result to its exact length so a short or long reply in
+  // one chunk can't shift every index after it. Missing slots become null,
+  // which the caller already treats as "model dropped this index".
+  return results
+    .map((arr, c) =>
+      chunks[c].map((_, k) => (typeof arr[k] === "string" ? arr[k] : null))
+    )
+    .flat();
+}
+
 // --- Route -------------------------------------------------------------------
 
 async function handleRewrite(request, env, ctx) {
@@ -277,7 +307,7 @@ async function handleRewrite(request, env, ctx) {
     const missHeadlines = missIndexes.map((i) => headlines[i]);
     let fresh;
     try {
-      fresh = await callDeepSeek(env, missHeadlines, settings);
+      fresh = await callDeepSeekChunked(env, missHeadlines, settings);
     } catch (err) {
       const status = err instanceof UpstreamError ? err.status : 502;
       return json(status, { error: err.message || "Something went sideways. Try again." });
