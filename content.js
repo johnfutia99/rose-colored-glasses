@@ -3,7 +3,12 @@
 
 const MIN_LEN = 25;
 const MAX_LEN = 180;
-const MAX_HEADLINES = 40;
+const MAX_HEADLINES = 60;
+
+// Rate limit: rewrite requests per tab per rolling window. Overflow is queued
+// for the next window instead of dropped.
+const RATE_LIMIT = 6;
+const RATE_WINDOW_MS = 60 * 1000;
 
 const DEFAULTS = {
   apiKey: "",
@@ -40,7 +45,9 @@ function textTarget(el) {
   return el;
 }
 
-function collectHeadlines() {
+// newOnly: skip targets we've already swapped (data-rcg-original present),
+// so observer-driven passes touch only fresh headlines.
+function collectHeadlines(newOnly) {
   const candidates = document.querySelectorAll("h1, h2, h3, h4, a");
   const byText = new Map(); // text -> target element; innermost wins in document order
 
@@ -50,6 +57,7 @@ function collectHeadlines() {
     if (rect.width === 0 || rect.height === 0) continue;
 
     const target = textTarget(el);
+    if (newOnly && target.dataset.rcgOriginal) continue;
     const source = target.dataset.rcgOriginal || target.textContent || "";
     const text = source.trim().replace(/\s+/g, " ");
     if (text.length < MIN_LEN || text.length > MAX_LEN) continue;
@@ -77,7 +85,174 @@ function swap(target, newText) {
   }, 250);
 }
 
+// Apply a batch of rewrites with the observer suspended, so our own DOM
+// mutations don't retrigger it. swap() finishes its text write 250ms out.
+function applySwaps(items, rewrites) {
+  let count = 0;
+  suspendObserver();
+  try {
+    rewrites.forEach((newText, i) => {
+      if (typeof newText === "string" && newText && newText !== items[i].text) {
+        swap(items[i].target, newText);
+        count++;
+      }
+    });
+  } finally {
+    setTimeout(resumeObserver, 500);
+  }
+  return count;
+}
+
+// --- Rate limiter -----------------------------------------------------------
+
+let requestTimes = [];
+let queuedTimer = null;
+
+function takeRateSlot() {
+  const now = Date.now();
+  requestTimes = requestTimes.filter((t) => now - t < RATE_WINDOW_MS);
+  if (requestTimes.length >= RATE_LIMIT) return false;
+  requestTimes.push(now);
+  return true;
+}
+
+// Schedule one observer-style pass for when the rate window frees up.
+function queueForNextWindow() {
+  if (queuedTimer) return;
+  const now = Date.now();
+  const oldest = requestTimes[0] || now;
+  const waitMs = Math.max(oldest + RATE_WINDOW_MS - now, 0) + 100;
+  queuedTimer = setTimeout(() => {
+    queuedTimer = null;
+    rewriteNewHeadlines();
+  }, waitMs);
+}
+
+// --- MutationObserver -------------------------------------------------------
+
+let observer = null;
+let observerWanted = false;
+let suspendCount = 0;
+let debounceTimer = null;
+
+function observerCallback(mutations) {
+  let sawNewElement = false;
+  for (const mutation of mutations) {
+    for (const node of mutation.addedNodes) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        sawNewElement = true;
+        break;
+      }
+    }
+    if (sawNewElement) break;
+  }
+  if (!sawNewElement) return;
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(rewriteNewHeadlines, 1000);
+}
+
+function startObserver() {
+  observerWanted = true;
+  if (!observer) observer = new MutationObserver(observerCallback);
+  if (suspendCount === 0 && document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+}
+
+function stopObserver() {
+  observerWanted = false;
+  clearTimeout(debounceTimer);
+  clearTimeout(queuedTimer);
+  queuedTimer = null;
+  if (observer) observer.disconnect();
+}
+
+function suspendObserver() {
+  suspendCount++;
+  if (observer) observer.disconnect();
+}
+
+function resumeObserver() {
+  suspendCount = Math.max(0, suspendCount - 1);
+  if (suspendCount === 0 && observerWanted && observer && document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+}
+
+// Observer-driven pass: new headlines only, quiet on every failure. A broken
+// feed here must never touch the console or the page.
+async function rewriteNewHeadlines() {
+  try {
+    const settings = await chrome.storage.local.get(DEFAULTS);
+    if (!savedKey(settings)) return;
+
+    const items = collectHeadlines(true);
+    if (items.length === 0) return;
+
+    if (!takeRateSlot()) {
+      queueForNextWindow();
+      return;
+    }
+
+    const response = await chrome.runtime.sendMessage({
+      type: "CALL_API",
+      headlines: items.map((item) => item.text),
+      settings
+    });
+
+    if (!response || response.error || !Array.isArray(response.rewrites)) return;
+    if (response.rewrites.length !== items.length) return;
+    applySwaps(items, response.rewrites);
+  } catch (err) {
+    // Extension reloaded mid-flight or the page is unloading. Stay quiet.
+  }
+}
+
+// --- Full rewrite (popup button / auto-run) ---------------------------------
+
+async function rewritePage() {
+  const settings = await chrome.storage.local.get(DEFAULTS);
+  if (!savedKey(settings)) {
+    return { error: "No API key saved. Open the popup and paste one." };
+  }
+
+  const items = collectHeadlines(false);
+  if (items.length === 0) {
+    // Still watch for late-loading content (SPA pages start empty).
+    startObserver();
+    return { error: "No headlines found on this page." };
+  }
+
+  if (!takeRateSlot()) {
+    queueForNextWindow();
+    return { error: "Rate limit: 6 rewrites a minute. Queued for the next window." };
+  }
+
+  let response;
+  try {
+    response = await chrome.runtime.sendMessage({
+      type: "CALL_API",
+      headlines: items.map((item) => item.text),
+      settings
+    });
+  } catch (err) {
+    return { error: "Could not reach the background worker. Try reloading the page." };
+  }
+
+  if (!response || response.error) {
+    return { error: (response && response.error) || "No response from background worker." };
+  }
+  if (!Array.isArray(response.rewrites) || response.rewrites.length !== items.length) {
+    return { error: "Model returned a malformed response. Page left untouched." };
+  }
+
+  const count = applySwaps(items, response.rewrites);
+  startObserver();
+  return { count };
+}
+
 function restore() {
+  stopObserver();
   const swapped = document.querySelectorAll("[data-rcg-original]");
   let count = 0;
   for (const target of swapped) {
@@ -86,38 +261,6 @@ function restore() {
     count++;
   }
   return count;
-}
-
-async function rewritePage() {
-  const settings = await chrome.storage.local.get(DEFAULTS);
-  if (!savedKey(settings)) {
-    return { error: "No API key saved. Open the popup and paste one." };
-  }
-
-  const items = collectHeadlines();
-  if (items.length === 0) {
-    return { error: "No headlines found on this page." };
-  }
-
-  const response = await chrome.runtime.sendMessage({
-    type: "CALL_API",
-    headlines: items.map((item) => item.text),
-    settings
-  });
-
-  if (!response || response.error) {
-    return { error: (response && response.error) || "No response from background worker." };
-  }
-
-  let count = 0;
-  response.rewrites.forEach((newText, i) => {
-    if (newText && newText !== items[i].text) {
-      swap(items[i].target, newText);
-      count++;
-    }
-  });
-
-  return { count };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -133,9 +276,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Auto-run on page load if a key is saved and auto-rewrite is on.
 (async () => {
-  const settings = await chrome.storage.local.get(DEFAULTS);
-  if (savedKey(settings) && settings.autoRewrite) {
-    // Give late-loading pages a beat to paint their headlines.
-    setTimeout(() => rewritePage(), 1200);
+  try {
+    const settings = await chrome.storage.local.get(DEFAULTS);
+    if (savedKey(settings) && settings.autoRewrite) {
+      // Give late-loading pages a beat to paint their headlines.
+      setTimeout(() => {
+        rewritePage();
+      }, 1200);
+    }
+  } catch (err) {
+    // Storage unavailable (extension reloading). Nothing to do.
   }
 })();
