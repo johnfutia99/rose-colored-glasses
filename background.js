@@ -4,6 +4,9 @@
 const API_URL = "https://api.deepseek.com/chat/completions";
 const MODEL = "deepseek-v4-flash";
 
+const CACHE_PREFIX = "cache:";
+const CACHE_MAX_ENTRIES = 2000;
+
 const STYLE_NOTES = {
   wholesome: "Warm, earnest, golden-retriever energy.",
   dry: "Deadpan and understated. No exclamation points.",
@@ -41,6 +44,93 @@ function parseArray(text, originals) {
   return originals.map((original, i) =>
     typeof parsed[i] === "string" && parsed[i].trim() ? parsed[i].trim() : original
   );
+}
+
+// --- Rewrite cache ----------------------------------------------------------
+// Keyed by SHA-256 of headline + model + the settings that shape the rewrite.
+// Cache failures must never block a rewrite: every cache op degrades to a miss.
+
+async function cacheKey(headline, settings) {
+  const input = [
+    headline,
+    MODEL,
+    Number(settings.sarcasm) || 0,
+    settings.humor || "wholesome",
+    Boolean(settings.checkedOut)
+  ].join("|");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
+  const hex = Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return CACHE_PREFIX + hex;
+}
+
+async function cacheGet(keys) {
+  try {
+    return await chrome.storage.local.get(keys);
+  } catch (err) {
+    return {};
+  }
+}
+
+async function cachePut(entries) {
+  if (Object.keys(entries).length === 0) return;
+  try {
+    await chrome.storage.local.set(entries);
+    await pruneCache();
+  } catch (err) {
+    // Storage full or unavailable. The rewrite already went out; drop it.
+  }
+}
+
+async function pruneCache() {
+  const all = await chrome.storage.local.get(null);
+  const entries = [];
+  for (const key of Object.keys(all)) {
+    if (key.startsWith(CACHE_PREFIX)) {
+      entries.push([key, (all[key] && all[key].t) || 0]);
+    }
+  }
+  if (entries.length <= CACHE_MAX_ENTRIES) return;
+  entries.sort((a, b) => a[1] - b[1]); // oldest first
+  const excess = entries.slice(0, entries.length - CACHE_MAX_ENTRIES).map((e) => e[0]);
+  await chrome.storage.local.remove(excess);
+}
+
+// Serve hits from the cache, call the API for misses only, merge back into
+// index order. Zero misses means zero network calls.
+async function rewriteWithCache(headlines, settings, apiKey) {
+  const keys = await Promise.all(headlines.map((h) => cacheKey(h, settings)));
+  const cached = await cacheGet(keys);
+
+  const results = new Array(headlines.length).fill(null);
+  const missIndexes = [];
+  headlines.forEach((headline, i) => {
+    const entry = cached[keys[i]];
+    if (entry && typeof entry.r === "string" && entry.r) {
+      results[i] = entry.r;
+    } else {
+      missIndexes.push(i);
+    }
+  });
+
+  if (missIndexes.length > 0) {
+    const missTexts = missIndexes.map((i) => headlines[i]);
+    const fresh = await callDeepSeek(missTexts, settings, apiKey);
+    const toStore = {};
+    const now = Date.now();
+    missIndexes.forEach((originalIndex, j) => {
+      results[originalIndex] = fresh[j];
+      // Don't cache fallbacks where the model gave us nothing new, or a
+      // headline would be stuck unflipped until the prune.
+      if (fresh[j] && fresh[j] !== headlines[originalIndex]) {
+        toStore[keys[originalIndex]] = { r: fresh[j], t: now };
+      }
+    });
+    await cachePut(toStore);
+  }
+
+  return results.map((r, i) => r || headlines[i]);
 }
 
 function resolveApiKey(settings) {
@@ -89,7 +179,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ error: "No DeepSeek API key saved. Open the popup and paste one." });
         return;
       }
-      const rewrites = await callDeepSeek(message.headlines, settings, apiKey);
+      const rewrites = await rewriteWithCache(message.headlines, settings, apiKey);
       sendResponse({ rewrites });
     } catch (err) {
       sendResponse({ error: err.message || "Unknown error." });
