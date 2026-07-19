@@ -213,7 +213,7 @@ async function rewriteNewHeadlines() {
 async function rewritePage() {
   const settings = await chrome.storage.local.get(DEFAULTS);
   if (!savedKey(settings)) {
-    return { error: "No API key saved. Open the popup and paste one." };
+    return { error: "No API key saved. Add yours in Options." };
   }
 
   const items = collectHeadlines(false);

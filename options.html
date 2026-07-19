@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="popup.css" />
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <header>
+    <h1>Rose Colored Glasses</h1>
+    <p class="tagline">Options</p>
+  </header>
+
+  <main>
+    <label class="field">
+      <span class="label">Power user: use your own DeepSeek key</span>
+      <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off" />
+    </label>
+    <p class="hint">
+      Stored only in this browser. Sent only to api.deepseek.com.
+    </p>
+
+    <div class="buttons">
+      <button id="save" class="primary">Save</button>
+    </div>
+
+    <p id="status" class="status" aria-live="polite"></p>
+  </main>
+
+  <script src="options.js"></script>
+</body>
+</html>

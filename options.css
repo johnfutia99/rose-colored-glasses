@@ -1,0 +1,19 @@
+/* Options page — reuses popup.css variables and controls, calmer layout.
+   The rose tint stays in the popup; options holds steady at the low end. */
+
+body {
+  width: auto;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 24px 20px;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--plum);
+  margin: -4px 0 12px;
+}
+
+.buttons {
+  max-width: 160px;
+}

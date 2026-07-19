@@ -30,11 +30,12 @@ function applyTint(value) {
   el("sarcasmLabel").textContent = SARCASM_LABELS[value];
 }
 
+function savedKey(settings) {
+  return (settings.apiKeys && settings.apiKeys.deepseek) || settings.apiKey || "";
+}
+
 async function loadSettings() {
   const settings = await chrome.storage.local.get(DEFAULTS);
-  // Migrate the v0.2-0.3 per-provider key slot into the single field.
-  const key = (settings.apiKeys && settings.apiKeys.deepseek) || settings.apiKey || "";
-  el("apiKey").value = key;
   el("humor").value = settings.humor;
   el("sarcasm").value = settings.sarcasm;
   el("checkedOut").checked = settings.checkedOut;
@@ -43,9 +44,8 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
+  // The API key lives in Options now; never write it from the popup.
   await chrome.storage.local.set({
-    apiKey: el("apiKey").value.trim(),
-    apiKeys: {}, // clear the old slot so there is one source of truth
     humor: el("humor").value,
     sarcasm: Number(el("sarcasm").value),
     checkedOut: el("checkedOut").checked,
@@ -65,8 +65,9 @@ async function messageActiveTab(message) {
 
 el("rewrite").addEventListener("click", async () => {
   await saveSettings();
-  if (!el("apiKey").value.trim()) {
-    setStatus("Paste a DeepSeek API key first.");
+  const settings = await chrome.storage.local.get(DEFAULTS);
+  if (!savedKey(settings)) {
+    setStatus("No API key saved. Add yours in Options (link below).");
     return;
   }
   setStatus("Rewriting...");
@@ -98,8 +99,13 @@ el("sarcasm").addEventListener("input", (event) => {
 });
 
 // Save on any change so the auto-rewrite path always has fresh settings.
-for (const id of ["apiKey", "humor", "sarcasm", "checkedOut", "autoRewrite"]) {
+for (const id of ["humor", "sarcasm", "checkedOut", "autoRewrite"]) {
   el(id).addEventListener("change", saveSettings);
 }
+
+el("openOptions").addEventListener("click", (event) => {
+  event.preventDefault();
+  chrome.runtime.openOptionsPage();
+});
 
 loadSettings();
