@@ -9,6 +9,7 @@ const MODEL = "deepseek-v4-flash";
 
 const WORKER_URL = "https://rcg-rewrite.rosecoloredglasses.workers.dev/rewrite";
 const WORKER_TIMEOUT_MS = 30000;
+const RETRY_BACKOFF_MS = 2000;
 
 const CACHE_PREFIX = "cache:";
 const CACHE_MAX_ENTRIES = 2000;
@@ -171,7 +172,9 @@ async function rewriteViaWorker(headlines, settings) {
     });
   } catch (err) {
     if (err && (err.name === "TimeoutError" || err.name === "AbortError")) {
-      throw new Error("That took too long. Give it a minute and try again.");
+      const timeout = new Error("That took too long. Give it a minute and try again.");
+      timeout.retryable = true;
+      throw timeout;
     }
     throw new Error("Can't reach the rose tint server. Are you offline?");
   }
@@ -186,7 +189,9 @@ async function rewriteViaWorker(headlines, settings) {
   if (!res.ok) {
     const friendly = data && typeof data.error === "string" && data.error;
     if (res.status === 429) {
-      throw new Error(friendly || "Out of rose tint for today. Back tomorrow.");
+      const quota = new Error(friendly || "Out of rose tint for today. Back tomorrow.");
+      quota.retryable = true;
+      throw quota;
     }
     if (res.status === 503) {
       throw new Error(friendly || "The rose tint budget ran out for this month. It refills soon.");
@@ -200,6 +205,22 @@ async function rewriteViaWorker(headlines, settings) {
   return data.rewrites.map((r, i) =>
     typeof r === "string" && r.trim() ? r.trim() : headlines[i]
   );
+}
+
+// One retry with backoff on transient failures (429, timeout), then give up
+// quietly: the second error propagates with the same popup-ready message.
+// Offline, spend cap, and malformed responses fail straight through — a
+// retry can't fix those. The pending promise keeps the MV3 worker alive
+// across the backoff.
+async function rewriteViaWorkerWithRetry(headlines, settings) {
+  try {
+    return await rewriteViaWorker(headlines, settings);
+  } catch (err) {
+    if (!err || !err.retryable) throw err;
+    const jitter = Math.floor(Math.random() * 500);
+    await new Promise((resolve) => setTimeout(resolve, RETRY_BACKOFF_MS + jitter));
+    return rewriteViaWorker(headlines, settings);
+  }
 }
 
 // --- Rewrite cache ----------------------------------------------------------
@@ -287,7 +308,7 @@ async function rewriteWithCache(headlines, settings) {
     });
     if (workerSlots.length > 0) {
       try {
-        const workerRewrites = await rewriteViaWorker(
+        const workerRewrites = await rewriteViaWorkerWithRetry(
           workerSlots.map((j) => missHeadlines[j]),
           settings
         );
