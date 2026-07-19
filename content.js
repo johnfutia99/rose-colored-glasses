@@ -17,9 +17,11 @@ const RATE_WINDOW_MS = 60 * 1000;
 const SITE_OVERRIDES = {
   "news.google.com": {
     // Article title links only — never section labels or "More" chrome.
-    // Google rotates class names, so lean on structure first, known
-    // title-link classes second.
-    selector: "article h3 a, article h4 a, article a.gPFEn, article a.JtKRv",
+    // Google rotates class names and dropped <article> wrappers, but every
+    // story link routes through /read/; section chrome routes elsewhere
+    // (/stories/, /topics/). Image-only /read/ links have no text and fall
+    // to the length filter. Known title classes ride along as backup.
+    selector: 'a[href*="/read/"], a.JtKRv, a.gPFEn, a.kEAYTc',
     minLen: 15
   }
 };
@@ -65,19 +67,18 @@ function collectHeadlines(newOnly) {
   const override = SITE_OVERRIDES[location.hostname];
   let candidates = [];
   if (override) {
+    // Override sites never fall back to the generic heuristic: on these
+    // sites it flips section labels and chrome. Zero matches after a
+    // redesign means zero rewrites — quiet — until the map entry is fixed.
     try {
       candidates = document.querySelectorAll(override.selector);
     } catch (err) {
       // Bad selector in the map is a bug, but never a broken page.
     }
-  }
-  // Generic heuristic: no override, or the override matched nothing
-  // (site redesign). Better a loose match than a dead extension.
-  const usingOverride = candidates.length > 0;
-  if (!usingOverride) {
+  } else {
     candidates = document.querySelectorAll("h1, h2, h3, h4, a");
   }
-  const minLen = usingOverride ? (override.minLen || MIN_LEN) : MIN_LEN;
+  const minLen = (override && override.minLen) || MIN_LEN;
 
   const byText = new Map(); // text -> target element; innermost wins in document order
 
