@@ -27,10 +27,12 @@ const CACHE_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 const UPSTREAM_TIMEOUT_MS = 25000;
 
-// DeepSeek generation time grows sharply with batch size: ~8s for 20-30
-// headlines, past 25s for 60. Chunks of 20 run in parallel keep the worst
-// full-page request around 10s while staying one request and one quota page.
-const DEEPSEEK_CHUNK_SIZE = 20;
+// DeepSeek generation time grows with batch size and content variety:
+// 20 varied real headlines measured at ~19s, brushing the 25s upstream
+// timeout; 60 in one call is far past it. Chunks of 10 run in parallel
+// keep the worst real-content chunk near 9s with a wide margin, while
+// staying one request and one quota page.
+const DEEPSEEK_CHUNK_SIZE = 10;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SETTINGS_KEYS = ["sarcasm", "humor", "checkedOut"];
