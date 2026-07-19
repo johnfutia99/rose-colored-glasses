@@ -23,7 +23,7 @@ Chrome extension (Manifest V3) that rewrites news headlines into happier version
 
 - Users never need their own API key. The no-key experience is the product requirement.
 - One model: `deepseek-v4-flash`. The Anthropic path was removed in v0.4.0; git history has it if ever needed.
-- Rewrite path order: on-device (Chrome Prompt API / Gemini Nano) when the device supports it, otherwise the owner's Cloudflare Worker proxy, otherwise BYOK if the user saved a key.
+- Rewrite path order: on-device (Chrome Prompt API / Gemini Nano) when the device supports it, otherwise BYOK if the user saved a key, otherwise the owner's Cloudflare Worker proxy. A saved key is an explicit opt-out of the Worker: BYOK traffic must never spend the owner's quota or money.
 - BYOK (a DeepSeek key in the options page) survives as a power-user option only. It bypasses the Worker quota.
 - Never embed any API key in the extension bundle. A published extension is a public zip.
 - The Worker always ships with all three caps: daily per-install quota, payload limits, and a monthly spend cap at DeepSeek's dashboard.
