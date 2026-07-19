@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy — Rose Colored Glasses</title>
+  <style>
+    :root {
+      --rose: #d94f70;
+      --rose-pale: #fdf0f3;
+      --ink: #3a2b30;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--ink);
+      background: var(--rose-pale);
+      line-height: 1.6;
+    }
+    main {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 48px 24px 64px;
+    }
+    header { margin-bottom: 32px; }
+    h1 { color: var(--rose); font-size: 1.9rem; margin-bottom: 4px; }
+    .date { color: #8a6b74; font-size: 0.9rem; }
+    h2 { color: var(--rose); font-size: 1.15rem; margin: 28px 0 8px; }
+    p { margin-bottom: 12px; }
+    ul { margin: 0 0 12px 22px; }
+    li { margin-bottom: 6px; }
+    a { color: var(--rose); }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 28px 32px;
+      box-shadow: 0 2px 12px rgba(217, 79, 112, 0.12);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Rose Colored Glasses — Privacy Policy</h1>
+      <p class="date">Effective July 19, 2026</p>
+    </header>
+
+    <div class="card">
+      <p>Rose Colored Glasses is a Chrome extension that rewrites news headlines
+      into happier versions. This page explains everything it does with data.
+      It is short because the extension does very little with data.</p>
+
+      <h2>What leaves your browser</h2>
+      <p>To rewrite headlines, the extension sends the headline text from news
+      pages you visit to our server, which passes it to DeepSeek (an AI
+      provider whose servers are located in China) to produce the rewritten
+      versions. Headline text is the only page content that is ever sent.</p>
+      <p>If your device supports Chrome's built-in on-device AI, rewrites
+      happen entirely on your machine instead, and nothing leaves your
+      browser.</p>
+
+      <h2>The install ID</h2>
+      <p>On install, the extension generates a random ID. It is sent with
+      rewrite requests only to enforce a fair daily limit. It is not tied to
+      your name, email, Google account, or anything else — it identifies no
+      one.</p>
+
+      <h2>What stays on your machine</h2>
+      <ul>
+        <li>Your settings (humor style, sarcasm level, toggles).</li>
+        <li>A local cache of past rewrites, so repeat pages don't need the
+        network.</li>
+        <li>The list of extra sites you enable with "Enable on this site."
+        The extension only runs on the news sites it lists and the sites you
+        explicitly add.</li>
+      </ul>
+
+      <h2>What we don't do</h2>
+      <ul>
+        <li>No accounts, no sign-in, no API keys.</li>
+        <li>Nothing is sold — not data, not anything.</li>
+        <li>No analytics, no tracking, no ads.</li>
+        <li>No browsing history is collected. Article bodies, comments, and
+        everything that isn't a headline stay untouched and unsent.</li>
+      </ul>
+
+      <h2>Questions</h2>
+      <p>Email <a href="mailto:jared@thenearsky.com">jared@thenearsky.com</a>.</p>
+    </div>
+  </main>
+</body>
+</html>
