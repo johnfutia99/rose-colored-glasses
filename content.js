@@ -119,6 +119,19 @@ function swap(target, newText) {
   }, 250);
 }
 
+// Report the live swap count so the background worker can badge this tab.
+// swap() sets data-rcg-original synchronously, so counting the attribute set
+// right after a batch is accurate, and self-corrects after re-rewrites and
+// partial batches. Quiet on every failure: the badge is cosmetic.
+function updateBadge() {
+  try {
+    const count = document.querySelectorAll("[data-rcg-original]").length;
+    chrome.runtime.sendMessage({ type: "SET_BADGE", count }).catch(() => {});
+  } catch (err) {
+    // Extension reloading or page unloading. The badge can wait.
+  }
+}
+
 // Apply a batch of rewrites with the observer suspended, so our own DOM
 // mutations don't retrigger it. swap() finishes its text write 250ms out.
 function applySwaps(items, rewrites) {
@@ -134,6 +147,7 @@ function applySwaps(items, rewrites) {
   } finally {
     setTimeout(resumeObserver, 500);
   }
+  updateBadge();
   return count;
 }
 
@@ -290,6 +304,7 @@ function restore() {
     delete target.dataset.rcgOriginal;
     count++;
   }
+  updateBadge();
   return count;
 }
 

@@ -13,6 +13,11 @@ const WORKER_TIMEOUT_MS = 30000;
 const CACHE_PREFIX = "cache:";
 const CACHE_MAX_ENTRIES = 2000;
 
+// Badge style is global; the count itself is set per tab. Runs on every
+// worker start. Rose matches popup.css --rose.
+chrome.action.setBadgeBackgroundColor({ color: "#d94f74" }).catch(() => {});
+chrome.action.setBadgeTextColor({ color: "#ffffff" }).catch(() => {});
+
 const STYLE_NOTES = {
   wholesome: "Warm, earnest, golden-retriever energy.",
   dry: "Deadpan and understated. No exclamation points.",
@@ -467,6 +472,18 @@ async function handleGrantedOrigins(origins) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "SET_BADGE") {
+    // Content script reporting its live swap count. Tab-scoped badge text
+    // clears automatically when the tab navigates or closes. Only tabs may
+    // set it; a count of 0 (restore) blanks the badge.
+    if (sender.tab && sender.tab.id != null) {
+      const count = Number(message.count) || 0;
+      chrome.action
+        .setBadgeText({ tabId: sender.tab.id, text: count > 0 ? String(count) : "" })
+        .catch(() => {});
+    }
+    return false;
+  }
   if (message.type === "REGISTER_SITE") {
     registerUserSite(message.pattern).then(sendResponse);
     return true;
