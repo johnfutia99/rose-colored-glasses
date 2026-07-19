@@ -10,6 +10,20 @@ const MAX_HEADLINES = 60;
 const RATE_LIMIT = 6;
 const RATE_WINDOW_MS = 60 * 1000;
 
+// Per-hostname overrides. When a site's markup defeats the generic heuristic,
+// add one entry here: a selector for its real headline elements, plus an
+// optional minLen when real titles run shorter than the generic floor.
+// Everything not listed uses the generic h1-h4 + links heuristic.
+const SITE_OVERRIDES = {
+  "news.google.com": {
+    // Article title links only — never section labels or "More" chrome.
+    // Google rotates class names, so lean on structure first, known
+    // title-link classes second.
+    selector: "article h3 a, article h4 a, article a.gPFEn, article a.JtKRv",
+    minLen: 15
+  }
+};
+
 const DEFAULTS = {
   apiKey: "",
   apiKeys: {}, // v0.2-0.3 per-provider slot
@@ -48,7 +62,23 @@ function textTarget(el) {
 // newOnly: skip targets we've already swapped (data-rcg-original present),
 // so observer-driven passes touch only fresh headlines.
 function collectHeadlines(newOnly) {
-  const candidates = document.querySelectorAll("h1, h2, h3, h4, a");
+  const override = SITE_OVERRIDES[location.hostname];
+  let candidates = [];
+  if (override) {
+    try {
+      candidates = document.querySelectorAll(override.selector);
+    } catch (err) {
+      // Bad selector in the map is a bug, but never a broken page.
+    }
+  }
+  // Generic heuristic: no override, or the override matched nothing
+  // (site redesign). Better a loose match than a dead extension.
+  const usingOverride = candidates.length > 0;
+  if (!usingOverride) {
+    candidates = document.querySelectorAll("h1, h2, h3, h4, a");
+  }
+  const minLen = usingOverride ? (override.minLen || MIN_LEN) : MIN_LEN;
+
   const byText = new Map(); // text -> target element; innermost wins in document order
 
   for (const el of candidates) {
@@ -60,7 +90,7 @@ function collectHeadlines(newOnly) {
     if (newOnly && target.dataset.rcgOriginal) continue;
     const source = target.dataset.rcgOriginal || target.textContent || "";
     const text = source.trim().replace(/\s+/g, " ");
-    if (text.length < MIN_LEN || text.length > MAX_LEN) continue;
+    if (text.length < minLen || text.length > MAX_LEN) continue;
 
     byText.set(text, target);
   }
