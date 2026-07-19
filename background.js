@@ -1,11 +1,14 @@
 // Rose Colored Glasses — background service worker.
 // Receives a batch of headlines from content.js, returns rewrites.
 //
-// Interim state after BYOK removal: no rewrite path is wired up until the
-// Phase 2 Worker lands. Cache hits still serve; misses fail with a friendly
-// message.
+// Path order per batch: local cache, then on-device (Task 2.3), then the
+// owner's Cloudflare Worker proxy. No user key anywhere; the anonymous
+// quota id and headline text are the only data that leave the browser.
 
 const MODEL = "deepseek-v4-flash";
+
+const WORKER_URL = "https://rcg-rewrite.rosecoloredglasses.workers.dev/rewrite";
+const WORKER_TIMEOUT_MS = 30000;
 
 const CACHE_PREFIX = "cache:";
 const CACHE_MAX_ENTRIES = 2000;
@@ -48,6 +51,90 @@ function parseArray(text, originals) {
   if (!Array.isArray(parsed)) throw new Error("Model did not return a JSON array.");
   return originals.map((original, i) =>
     typeof parsed[i] === "string" && parsed[i].trim() ? parsed[i].trim() : original
+  );
+}
+
+// --- Rewrite paths ----------------------------------------------------------
+
+// Anonymous install id, used for the Worker's daily quota and nothing else.
+// Created once and persisted. If storage is unreachable we hand out a
+// throwaway id rather than fail the rewrite.
+async function getQuotaId() {
+  try {
+    const { quotaId } = await chrome.storage.local.get("quotaId");
+    if (typeof quotaId === "string" && quotaId) return quotaId;
+  } catch (err) {
+    // Fall through to a fresh id.
+  }
+  const id = crypto.randomUUID();
+  try {
+    await chrome.storage.local.set({ quotaId: id });
+  } catch (err) {
+    // Couldn't persist; the throwaway id still lets this batch through.
+  }
+  return id;
+}
+
+// On-device rewrite (Chrome Prompt API) lands in Task 2.3. Until then this
+// always reports unavailable and every miss goes to the Worker.
+async function rewriteOnDevice(headlines, settings) {
+  return null;
+}
+
+// The owner's Cloudflare Worker proxy. Throws with popup-ready status text
+// on every failure; the caller leaves the page untouched.
+async function rewriteViaWorker(headlines, settings) {
+  const id = await getQuotaId();
+  const payload = {
+    id,
+    headlines,
+    // The Worker validates settings against a whitelist; send exactly that
+    // shape. Unknown humor values (stale storage) degrade to wholesome.
+    settings: {
+      sarcasm: Number(settings.sarcasm) || 0,
+      humor: STYLE_NOTES[settings.humor] ? settings.humor : "wholesome",
+      checkedOut: Boolean(settings.checkedOut)
+    }
+  };
+
+  let res;
+  try {
+    res = await fetch(WORKER_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(WORKER_TIMEOUT_MS)
+    });
+  } catch (err) {
+    if (err && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      throw new Error("That took too long. Give it a minute and try again.");
+    }
+    throw new Error("Can't reach the rose tint server. Are you offline?");
+  }
+
+  let data = null;
+  try {
+    data = await res.json();
+  } catch (err) {
+    // Non-JSON body; the status code decides the message below.
+  }
+
+  if (!res.ok) {
+    const friendly = data && typeof data.error === "string" && data.error;
+    if (res.status === 429) {
+      throw new Error(friendly || "Out of rose tint for today. Back tomorrow.");
+    }
+    if (res.status === 503) {
+      throw new Error(friendly || "The rose tint budget ran out for this month. It refills soon.");
+    }
+    throw new Error(friendly || "The rewrite server had a moment. Try again.");
+  }
+
+  if (!data || !Array.isArray(data.rewrites) || data.rewrites.length !== headlines.length) {
+    throw new Error("The rewrite server had a moment. Try again.");
+  }
+  return data.rewrites.map((r, i) =>
+    typeof r === "string" && r.trim() ? r.trim() : headlines[i]
   );
 }
 
@@ -102,26 +189,42 @@ async function pruneCache() {
   await chrome.storage.local.remove(excess);
 }
 
-// Serve hits from the cache, merge back into index order. Zero misses means
-// zero network calls. Until the Phase 2 Worker exists there is nothing to
-// call for misses, so any miss fails the batch with a friendly message.
+// Serve hits from the cache, send only the misses out (on-device first,
+// else the Worker), merge everything back into index order. Zero misses
+// means zero network calls.
 async function rewriteWithCache(headlines, settings) {
   const keys = await Promise.all(headlines.map((h) => cacheKey(h, settings)));
   const cached = await cacheGet(keys);
 
   const results = new Array(headlines.length).fill(null);
-  let misses = 0;
+  const missIndexes = [];
   headlines.forEach((headline, i) => {
     const entry = cached[keys[i]];
     if (entry && typeof entry.r === "string" && entry.r) {
       results[i] = entry.r;
     } else {
-      misses++;
+      missIndexes.push(i);
     }
   });
 
-  if (misses > 0) {
-    throw new Error("Fresh rewrites are resting until the next update. Soon.");
+  if (missIndexes.length > 0) {
+    const missHeadlines = missIndexes.map((i) => headlines[i]);
+
+    let fresh = await rewriteOnDevice(missHeadlines, settings);
+    if (!fresh) fresh = await rewriteViaWorker(missHeadlines, settings);
+
+    const entries = {};
+    const now = Date.now();
+    missIndexes.forEach((originalIndex, j) => {
+      const rewrite = fresh[j];
+      results[originalIndex] = rewrite;
+      // A rewrite equal to its original means the model dropped that index;
+      // don't cache the fallback.
+      if (rewrite !== headlines[originalIndex]) {
+        entries[keys[originalIndex]] = { r: rewrite, t: now };
+      }
+    });
+    await cachePut(entries);
   }
 
   return results.map((r, i) => r || headlines[i]);
@@ -239,6 +342,7 @@ async function resyncUserSites() {
 
 chrome.runtime.onInstalled.addListener(() => {
   resyncUserSites();
+  getQuotaId(); // mint the anonymous quota id on install/update
   // BYOK is gone; scrub any key an earlier version stored.
   chrome.storage.local.remove(["apiKey", "apiKeys"]).catch(() => {});
 });

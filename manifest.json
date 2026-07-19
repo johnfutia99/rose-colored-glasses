@@ -8,6 +8,9 @@
     "activeTab",
     "scripting"
   ],
+  "host_permissions": [
+    "https://rcg-rewrite.rosecoloredglasses.workers.dev/*"
+  ],
   "optional_host_permissions": [
     "https://*/*"
   ],
