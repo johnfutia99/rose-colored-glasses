@@ -1,8 +1,6 @@
 // Rose Colored Glasses — popup logic.
 
 const DEFAULTS = {
-  apiKey: "",
-  apiKeys: {}, // v0.2-0.3 per-provider slot, migrated on load
   sarcasm: 3,
   humor: "wholesome",
   checkedOut: false,
@@ -28,10 +26,6 @@ const el = (id) => document.getElementById(id);
 function applyTint(value) {
   document.documentElement.style.setProperty("--sarc", String(value / 10));
   el("sarcasmLabel").textContent = SARCASM_LABELS[value];
-}
-
-function savedKey(settings) {
-  return (settings.apiKeys && settings.apiKeys.deepseek) || settings.apiKey || "";
 }
 
 async function loadSettings() {
@@ -69,11 +63,6 @@ async function messageActiveTab(message) {
 }
 
 async function runRewrite() {
-  const settings = await chrome.storage.local.get(DEFAULTS);
-  if (!savedKey(settings)) {
-    setStatus("No API key saved. Right-click the icon and pick Options.");
-    return;
-  }
   setStatus("Rewriting...");
   try {
     const result = await messageActiveTab({ type: "REWRITE_NOW" });

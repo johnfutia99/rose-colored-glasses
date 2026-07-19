@@ -36,17 +36,11 @@ const SITE_OVERRIDES = {
 };
 
 const DEFAULTS = {
-  apiKey: "",
-  apiKeys: {}, // v0.2-0.3 per-provider slot
   sarcasm: 3,
   humor: "wholesome",
   checkedOut: false,
   autoRewrite: true
 };
-
-function savedKey(settings) {
-  return (settings.apiKeys && settings.apiKeys.deepseek) || settings.apiKey || "";
-}
 
 // Find the deepest element that actually holds the headline text,
 // so we don't wipe out timestamps or images nested inside a link.
@@ -224,7 +218,6 @@ function resumeObserver() {
 async function rewriteNewHeadlines() {
   try {
     const settings = await chrome.storage.local.get(DEFAULTS);
-    if (!savedKey(settings)) return;
 
     const items = collectHeadlines(true);
     if (items.length === 0) return;
@@ -252,9 +245,6 @@ async function rewriteNewHeadlines() {
 
 async function rewritePage() {
   const settings = await chrome.storage.local.get(DEFAULTS);
-  if (!savedKey(settings)) {
-    return { error: "No API key saved. Add yours in Options." };
-  }
 
   const items = collectHeadlines(false);
   if (items.length === 0) {
@@ -318,11 +308,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Auto-run on page load if a key is saved and auto-rewrite is on.
+// Auto-run on page load if auto-rewrite is on.
 (async () => {
   try {
     const settings = await chrome.storage.local.get(DEFAULTS);
-    if (savedKey(settings) && settings.autoRewrite) {
+    if (settings.autoRewrite) {
       // Give late-loading pages a beat to paint their headlines.
       setTimeout(() => {
         // Skip if something already rewrote this page (e.g. the popup's

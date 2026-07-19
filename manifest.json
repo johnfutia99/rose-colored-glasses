@@ -8,9 +8,6 @@
     "activeTab",
     "scripting"
   ],
-  "host_permissions": [
-    "https://api.deepseek.com/*"
-  ],
   "optional_host_permissions": [
     "https://*/*"
   ],

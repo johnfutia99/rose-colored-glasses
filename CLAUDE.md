@@ -23,8 +23,8 @@ Chrome extension (Manifest V3) that rewrites news headlines into happier version
 
 - Users never need their own API key. The no-key experience is the product requirement.
 - One model: `deepseek-v4-flash`. The Anthropic path was removed in v0.4.0; git history has it if ever needed.
-- Rewrite path order: on-device (Chrome Prompt API / Gemini Nano) when the device supports it, otherwise BYOK if the user saved a key, otherwise the owner's Cloudflare Worker proxy. A saved key is an explicit opt-out of the Worker: BYOK traffic must never spend the owner's quota or money.
-- BYOK (a DeepSeek key in the options page) survives as a power-user option only. It bypasses the Worker quota.
+- Rewrite path order: on-device (Chrome Prompt API / Gemini Nano) when the device supports it, otherwise the owner's Cloudflare Worker proxy. There is no third path.
+- No BYOK. Removed after v0.6.0 (owner decision, 2026-07-19): no key field, no key storage, no direct DeepSeek call from the browser. Git history has the old implementation if ever needed. Until the Worker ships, fresh rewrites fail with a friendly status message; the local cache still serves hits.
 - Never embed any API key in the extension bundle. A published extension is a public zip.
 - The Worker always ships with all three caps: daily per-install quota, payload limits, and a monthly spend cap at DeepSeek's dashboard.
 - The privacy policy (Phase 4) must state: headline text is processed by DeepSeek's servers unless on-device mode is active, and an anonymous install ID is used for quota only.
@@ -32,10 +32,11 @@ Chrome extension (Manifest V3) that rewrites news headlines into happier version
 
 ## Architecture
 
-- `manifest.json` — MV3 config, named news sites, host permissions for api.deepseek.com and the Worker URL.
-- `background.js` — service worker. Path selection (on-device / Worker / BYOK), prompt builder, JSON-array contract, cache.
+- `manifest.json` — MV3 config, named news sites, host permission for the Worker URL (Phase 2).
+- `background.js` — service worker. Path selection (on-device / Worker), prompt builder, JSON-array contract, cache.
 - `content.js` — finds headline-shaped text (h1-h4 plus links 25-180 chars), dedupes innermost-wins, swaps text in place. `textTarget()` finds the deepest text-bearing node so timestamps and images inside links survive.
-- `popup.html/css/js` — the fun controls: humor style, sarcasm slider, checked-out and auto-rewrite toggles, rewrite/restore buttons.
+- `popup.html/css/js` — the fun controls: humor style, sarcasm slider, checked-out and auto-rewrite toggles, rewrite/restore buttons, "Enable on this site" on ungranted sites.
+- `options.html/css/js` — user-added sites list with remove/revoke. No other settings live here.
 - `worker/` — Cloudflare Worker proxy (Phase 2). Holds the DeepSeek key as a secret, KV rewrite cache, quotas.
 - `tools/compare.js` — Node script, one humor style at sarcasm 2/6/10 on 20 fixed headlines, for prompt tuning.
 

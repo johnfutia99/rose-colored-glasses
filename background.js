@@ -1,7 +1,10 @@
 // Rose Colored Glasses — background service worker.
-// Receives a batch of headlines from content.js, calls DeepSeek, returns rewrites.
+// Receives a batch of headlines from content.js, returns rewrites.
+//
+// Interim state after BYOK removal: no rewrite path is wired up until the
+// Phase 2 Worker lands. Cache hits still serve; misses fail with a friendly
+// message.
 
-const API_URL = "https://api.deepseek.com/chat/completions";
 const MODEL = "deepseek-v4-flash";
 
 const CACHE_PREFIX = "cache:";
@@ -37,6 +40,8 @@ function buildSystemPrompt(settings) {
   ].join(" ");
 }
 
+// Shared by every Phase 2 rewrite path (on-device and the Worker keep the
+// same JSON-array contract). Unused this instant, deliberately kept.
 function parseArray(text, originals) {
   const clean = text.replace(/```json|```/g, "").trim();
   const parsed = JSON.parse(clean);
@@ -97,75 +102,29 @@ async function pruneCache() {
   await chrome.storage.local.remove(excess);
 }
 
-// Serve hits from the cache, call the API for misses only, merge back into
-// index order. Zero misses means zero network calls.
-async function rewriteWithCache(headlines, settings, apiKey) {
+// Serve hits from the cache, merge back into index order. Zero misses means
+// zero network calls. Until the Phase 2 Worker exists there is nothing to
+// call for misses, so any miss fails the batch with a friendly message.
+async function rewriteWithCache(headlines, settings) {
   const keys = await Promise.all(headlines.map((h) => cacheKey(h, settings)));
   const cached = await cacheGet(keys);
 
   const results = new Array(headlines.length).fill(null);
-  const missIndexes = [];
+  let misses = 0;
   headlines.forEach((headline, i) => {
     const entry = cached[keys[i]];
     if (entry && typeof entry.r === "string" && entry.r) {
       results[i] = entry.r;
     } else {
-      missIndexes.push(i);
+      misses++;
     }
   });
 
-  if (missIndexes.length > 0) {
-    const missTexts = missIndexes.map((i) => headlines[i]);
-    const fresh = await callDeepSeek(missTexts, settings, apiKey);
-    const toStore = {};
-    const now = Date.now();
-    missIndexes.forEach((originalIndex, j) => {
-      results[originalIndex] = fresh[j];
-      // Don't cache fallbacks where the model gave us nothing new, or a
-      // headline would be stuck unflipped until the prune.
-      if (fresh[j] && fresh[j] !== headlines[originalIndex]) {
-        toStore[keys[originalIndex]] = { r: fresh[j], t: now };
-      }
-    });
-    await cachePut(toStore);
+  if (misses > 0) {
+    throw new Error("Fresh rewrites are resting until the next update. Soon.");
   }
 
   return results.map((r, i) => r || headlines[i]);
-}
-
-function resolveApiKey(settings) {
-  const keys = settings.apiKeys || {};
-  // apiKeys.deepseek is the v0.2-0.3 slot; apiKey is the canonical field going forward.
-  return keys.deepseek || settings.apiKey || "";
-}
-
-async function callDeepSeek(headlines, settings, apiKey) {
-  const response = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "authorization": `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 4096,
-      messages: [
-        { role: "system", content: buildSystemPrompt(settings) },
-        { role: "user", content: JSON.stringify(headlines) }
-      ]
-    })
-  });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error((data && data.error && data.error.message) || `API error ${response.status}`);
-  }
-
-  const text =
-    data.choices && data.choices[0] && data.choices[0].message
-      ? data.choices[0].message.content || ""
-      : "";
-  return parseArray(text, headlines);
 }
 
 // --- User-enabled sites (optional host permissions) -------------------------
@@ -280,6 +239,8 @@ async function resyncUserSites() {
 
 chrome.runtime.onInstalled.addListener(() => {
   resyncUserSites();
+  // BYOK is gone; scrub any key an earlier version stored.
+  chrome.storage.local.remove(["apiKey", "apiKeys"]).catch(() => {});
 });
 
 // The popup can die mid-enable: on macOS the permission dialog steals focus
@@ -329,13 +290,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   (async () => {
     try {
-      const settings = message.settings || {};
-      const apiKey = resolveApiKey(settings);
-      if (!apiKey) {
-        sendResponse({ error: "No DeepSeek API key saved. Open the popup and paste one." });
-        return;
-      }
-      const rewrites = await rewriteWithCache(message.headlines, settings, apiKey);
+      const rewrites = await rewriteWithCache(message.headlines, message.settings || {});
       sendResponse({ rewrites });
     } catch (err) {
       sendResponse({ error: err.message || "Unknown error." });

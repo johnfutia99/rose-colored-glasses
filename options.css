@@ -14,12 +14,8 @@ body {
   margin: -4px 0 12px;
 }
 
-.buttons {
-  max-width: 160px;
-}
-
 .sites {
-  margin-top: 20px;
+  margin-top: 4px;
 }
 
 .site-list {

@@ -61,9 +61,9 @@ Acceptance: curl the route with a valid payload and get rewrites; oversized payl
 
 ### Task 2.2: Extension integration
 - On install, generate `crypto.randomUUID()` once and store it as the quota ID. It is used for quota only.
-- background.js path order per request: on-device if available, else BYOK if a key is saved, else the Worker.
+- background.js path order per request: on-device if available, else the Worker. (BYOK was removed after v0.6.0; there is no key path.)
 - Add the Worker URL to host_permissions.
-- Quota and cap responses surface as popup status: "Out of rose tint for today. Back tomorrow, or add your own key in Options."
+- Quota and cap responses surface as popup status: "Out of rose tint for today. Back tomorrow."
 
 Acceptance: a fresh profile with no key installed flips headlines immediately.
 
@@ -82,7 +82,7 @@ Acceptance: on supported hardware, airplane mode still flips headlines.
 Count of rewritten headlines on the action icon per tab. Clear on navigation. Rose background, white text.
 
 ### Task 3.2: Failure behavior
-Every failure leaves the page untouched and puts a human-readable reason in popup status: quota (429), spend cap (503), bad BYOK key (401), offline, timeout at 30 seconds, unparseable model output. One retry with backoff on 429 and timeouts, then give up quietly.
+Every failure leaves the page untouched and puts a human-readable reason in popup status: quota (429), spend cap (503), offline, timeout at 30 seconds, unparseable model output. One retry with backoff on 429 and timeouts, then give up quietly.
 
 ### Task 3.3: QA sweep
 Every supported site, three settings combos, all three rewrite paths. Fix per-site breakage with override map entries, not heuristic changes. Strip every debug log. Record results in TESTING.md.
@@ -94,7 +94,7 @@ Acceptance for the phase: an afternoon of browsing produces zero console errors 
 ## Phase 4: Store package
 
 ### Task 4.1: Privacy policy
-One static page on GitHub Pages. Plain language, short. It must state: headline text from pages you visit is sent to our server and processed by DeepSeek (servers in China) to produce rewrites, unless your device supports on-device mode, in which case nothing leaves your browser; a random install ID is used to enforce daily limits and identifies no one; a key you add yourself is stored locally and sent only to DeepSeek; nothing is sold, no analytics.
+One static page on GitHub Pages. Plain language, short. It must state: headline text from pages you visit is sent to our server and processed by DeepSeek (servers in China) to produce rewrites, unless your device supports on-device mode, in which case nothing leaves your browser; a random install ID is used to enforce daily limits and identifies no one; nothing is sold, no analytics.
 
 ### Task 4.2: Listing assets
 - 1280x800 screenshots: flipped pages in squirrel, Midwest nice, and Shakespearean modes, plus the popup at sarcasm 10.
@@ -104,7 +104,7 @@ One static page on GitHub Pages. Plain language, short. It must state: headline 
 
 ### Task 4.3: Submission
 - $5 developer registration.
-- Privacy practices form: single purpose (rewrites headline text on listed news sites); justify each permission (storage: settings and cache; activeTab: popup buttons; hosts: the news sites, the API, the Worker).
+- Privacy practices form: single purpose (rewrites headline text on listed news sites); justify each permission (storage: settings and cache; activeTab: popup buttons; scripting: user-enabled sites; hosts: the news sites and the Worker).
 - Upload, submit, expect a few days of review.
 
 If rejected: the feet style is the first knob to soften, the disclosure wording is the second.
