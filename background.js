@@ -168,6 +168,132 @@ async function callDeepSeek(headlines, settings, apiKey) {
   return parseArray(text, headlines);
 }
 
+// --- User-enabled sites (optional host permissions) -------------------------
+// The install-time site list never widens. Users grant extra origins one at a
+// time from the popup; we register content.js dynamically for each. Patterns
+// persist in storage under userSites so updates can re-register (Chrome
+// clears dynamic scripts on extension update).
+
+const USER_SITE_PATTERN = /^https:\/\/[a-z0-9.-]+\/\*$/i;
+
+function siteScriptId(pattern) {
+  return "rcg-user-" + pattern.replace(/^https:\/\//i, "").replace(/\/\*$/, "");
+}
+
+async function isScriptRegistered(id) {
+  try {
+    const scripts = await chrome.scripting.getRegisteredContentScripts({ ids: [id] });
+    return scripts.length > 0;
+  } catch (err) {
+    return false;
+  }
+}
+
+async function registerUserSite(pattern) {
+  if (typeof pattern !== "string" || !USER_SITE_PATTERN.test(pattern)) {
+    return { error: "That site address doesn't look right." };
+  }
+  try {
+    const id = siteScriptId(pattern);
+    if (!(await isScriptRegistered(id))) {
+      await chrome.scripting.registerContentScripts([
+        {
+          id,
+          matches: [pattern],
+          js: ["content.js"],
+          runAt: "document_idle",
+          persistAcrossSessions: true
+        }
+      ]);
+    }
+    const { userSites } = await chrome.storage.local.get({ userSites: [] });
+    if (!userSites.includes(pattern)) {
+      userSites.push(pattern);
+      await chrome.storage.local.set({ userSites });
+    }
+    return { ok: true };
+  } catch (err) {
+    return { error: "Could not enable this site. Try again." };
+  }
+}
+
+async function unregisterUserSite(pattern) {
+  try {
+    await chrome.scripting.unregisterContentScripts({ ids: [siteScriptId(pattern)] });
+  } catch (err) {
+    // Not registered (already cleared by an update). Keep going.
+  }
+  try {
+    await chrome.permissions.remove({ origins: [pattern] });
+  } catch (err) {
+    // Permission already gone. Keep going.
+  }
+  try {
+    const { userSites } = await chrome.storage.local.get({ userSites: [] });
+    await chrome.storage.local.set({ userSites: userSites.filter((p) => p !== pattern) });
+    return { ok: true };
+  } catch (err) {
+    return { error: "Could not update the site list. Try again." };
+  }
+}
+
+// Re-register user sites after updates, and drop any whose permission the
+// user revoked from Chrome's own extension settings.
+async function resyncUserSites() {
+  try {
+    const { userSites } = await chrome.storage.local.get({ userSites: [] });
+    if (!Array.isArray(userSites) || userSites.length === 0) return;
+    const keep = [];
+    for (const pattern of userSites) {
+      let granted = false;
+      try {
+        granted = await chrome.permissions.contains({ origins: [pattern] });
+      } catch (err) {
+        granted = false;
+      }
+      if (!granted) continue;
+      keep.push(pattern);
+      const id = siteScriptId(pattern);
+      if (!(await isScriptRegistered(id))) {
+        try {
+          await chrome.scripting.registerContentScripts([
+            {
+              id,
+              matches: [pattern],
+              js: ["content.js"],
+              runAt: "document_idle",
+              persistAcrossSessions: true
+            }
+          ]);
+        } catch (err) {
+          // One bad entry must not block the rest.
+        }
+      }
+    }
+    if (keep.length !== userSites.length) {
+      await chrome.storage.local.set({ userSites: keep });
+    }
+  } catch (err) {
+    // Storage unavailable; next startup retries.
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  resyncUserSites();
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "REGISTER_SITE") {
+    registerUserSite(message.pattern).then(sendResponse);
+    return true;
+  }
+  if (message.type === "UNREGISTER_SITE") {
+    unregisterUserSite(message.pattern).then(sendResponse);
+    return true;
+  }
+  return false;
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type !== "CALL_API") return;
 

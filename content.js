@@ -1,5 +1,14 @@
 // Rose Colored Glasses — content script.
 // Finds headline-shaped text, sends it to the background worker, swaps it in place.
+//
+// The whole script runs inside a guard: user-enabled sites can get this file
+// twice (dynamic registration + a one-time executeScript on the enable click),
+// and a second pass must not redeclare bindings or double-register listeners.
+
+(() => {
+
+if (window.__rcgLoaded) return;
+window.__rcgLoaded = true;
 
 const MIN_LEN = 25;
 const MAX_LEN = 180;
@@ -295,6 +304,10 @@ function restore() {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "PING") {
+    sendResponse({ ok: true });
+    return false;
+  }
   if (message.type === "REWRITE_NOW") {
     rewritePage().then(sendResponse);
     return true;
@@ -312,10 +325,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (savedKey(settings) && settings.autoRewrite) {
       // Give late-loading pages a beat to paint their headlines.
       setTimeout(() => {
-        rewritePage();
+        // Skip if something already rewrote this page (e.g. the popup's
+        // enable-site flow ran a rewrite right before injecting us).
+        if (!document.querySelector("[data-rcg-original]")) rewritePage();
       }, 1200);
     }
   } catch (err) {
     // Storage unavailable (extension reloading). Nothing to do.
   }
+})();
+
 })();

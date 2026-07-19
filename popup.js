@@ -57,14 +57,18 @@ function setStatus(text) {
   el("status").textContent = text;
 }
 
-async function messageActiveTab(message) {
+async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.id) throw new Error("No active tab.");
+  return tab;
+}
+
+async function messageActiveTab(message) {
+  const tab = await getActiveTab();
   return chrome.tabs.sendMessage(tab.id, message);
 }
 
-el("rewrite").addEventListener("click", async () => {
-  await saveSettings();
+async function runRewrite() {
   const settings = await chrome.storage.local.get(DEFAULTS);
   if (!savedKey(settings)) {
     setStatus("No API key saved. Right-click the icon and pick Options.");
@@ -83,6 +87,83 @@ el("rewrite").addEventListener("click", async () => {
   } catch (err) {
     setStatus("Open a supported news site first (AP, BBC, CNN, Google News...).");
   }
+}
+
+el("rewrite").addEventListener("click", async () => {
+  await saveSettings();
+  await runRewrite();
+});
+
+// --- "Enable on this site" ---------------------------------------------------
+// Shown only when the active tab is an https page our content script isn't
+// running on. One click: permission prompt, dynamic registration, inject,
+// rewrite.
+
+function sitePattern(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:" || !url.hostname) return null;
+    return `https://${url.hostname}/*`;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function detectUnsupportedSite() {
+  try {
+    const tab = await getActiveTab();
+    if (!sitePattern(tab.url || "")) return; // chrome://, http, store pages
+    await chrome.tabs.sendMessage(tab.id, { type: "PING" });
+    // Ping answered: content script already runs here.
+  } catch (err) {
+    el("mainButtons").hidden = true;
+    el("enableWrap").hidden = false;
+  }
+}
+
+el("enableSite").addEventListener("click", async () => {
+  let tab;
+  try {
+    tab = await getActiveTab();
+  } catch (err) {
+    setStatus("No active tab.");
+    return;
+  }
+  const pattern = sitePattern(tab.url || "");
+  if (!pattern) {
+    setStatus("This page can't be enabled (https sites only).");
+    return;
+  }
+
+  let granted = false;
+  try {
+    granted = await chrome.permissions.request({ origins: [pattern] });
+  } catch (err) {
+    setStatus("Chrome refused that permission request.");
+    return;
+  }
+  if (!granted) {
+    setStatus("No permission granted. Nothing changed.");
+    return;
+  }
+
+  const reg = await chrome.runtime.sendMessage({ type: "REGISTER_SITE", pattern });
+  if (!reg || reg.error) {
+    setStatus((reg && reg.error) || "Could not enable this site.");
+    return;
+  }
+
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+  } catch (err) {
+    setStatus("Enabled. Reload the page to see it work.");
+    return;
+  }
+
+  el("enableWrap").hidden = true;
+  el("mainButtons").hidden = false;
+  await saveSettings();
+  await runRewrite();
 });
 
 el("restore").addEventListener("click", async () => {
@@ -104,3 +185,4 @@ for (const id of ["humor", "sarcasm", "checkedOut", "autoRewrite"]) {
 }
 
 loadSettings();
+detectUnsupportedSite();

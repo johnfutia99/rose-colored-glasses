@@ -45,9 +45,13 @@
       <span>Rewrite pages automatically</span>
     </label>
 
-    <div class="buttons">
+    <div class="buttons" id="mainButtons">
       <button id="rewrite" class="primary">Rewrite this page</button>
       <button id="restore" class="ghost">Restore originals</button>
+    </div>
+
+    <div class="buttons" id="enableWrap" hidden>
+      <button id="enableSite" class="primary">Enable on this site</button>
     </div>
 
     <p id="status" class="status" aria-live="polite"></p>
