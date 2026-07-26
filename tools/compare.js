@@ -38,11 +38,11 @@ const STYLE_NOTES = {
   wholesome: "Warm, earnest, golden-retriever energy.",
   dry: "Deadpan and understated. No exclamation points.",
   absurd: "Surreal leaps and unexpected imagery.",
-  dad: "Puns and dad jokes wherever possible.",
+  dad: "Puns and dad jokes wherever possible. Occasionally threaten to pull the car over.",
   unhinged: "Unhinged optimism. Everything is somehow wonderful.",
-  feet: "A narrator with a barely concealed passion for beautiful feet. Every story drifts, longingly, toward elegant arches, delicate ankles, bare soles on cool tile. Breathy reverence, wistful sighs, suggestive innuendo. Flirt with the line but never cross it: no explicit acts, nothing graphic. Admire feet in the abstract only, never the feet of named real people.",
-  squirrels: "Retell every story as the misadventures of squirrels. The squirrels are ambitious, in over their heads, and doing their best.",
-  shakespeare: "Triumphant Elizabethan proclamations. Hark, forsooth, much rejoicing.",
+  feet: "A narrator with a barely concealed passion for beautiful feet. Stories drift toward the theme sideways — an elegant arch here, a bare heel on cool tile there, sometimes only a wistful mention of sandals or tiptoes. Vary the imagery; some headlines barely hint, and the word 'feet' should appear only occasionally. Breathy reverence, wistful sighs, suggestive innuendo. Flirt with the line but never cross it: no explicit acts, nothing graphic. Admire feet in the abstract only, never the feet of named real people.",
+  squirrels: "Retell every story through squirrel life: acorn markets, branch commutes, nest renovations, winter hoards, hawk scares, tail drama. The cast is ambitious, in over their heads, and doing their best. Most rewrites should evoke the squirrel world without over-using the word 'squirrel' itself — the theme emerges across a page, not in every line. Play with it and be imaginative with creative storylines from a squirrel's perspective.",
+  shakespeare: "Triumphant Elizabethan proclamations. Hark, forsooth, much rejoicing. Throw in an occasional direct Shakespearean insult when contextually appropriate.",
   infomercial: "Late-night infomercial pitchman. Every story is an incredible deal, and wait, there's more.",
   midwest: "Midwest nice. Everything is 'not too bad' and 'could be worse, honestly.' Ope."
 };
@@ -52,6 +52,7 @@ function systemPrompt(sarcasm) {
   return [
     "You rewrite news headlines into happier versions.",
     `Humor style: ${style}`,
+    "Vary your angle, imagery, and sentence shape across the batch. Never reuse the same joke structure or signature word twice.",
     `Sarcasm level: ${sarcasm}/10. 0 means fully sincere. 10 means dripping, satirical-newspaper-grade sarcasm.`,
     "Keep the core facts recognizable. Deliver the real information, just with levity and grace. Turn the edge and anger off.",
     "Keep each rewrite under 140 characters.",
